@@ -55,7 +55,6 @@ def main():
 
     # --- Load checkpoint if it exists ---
     optimizer = optim.AdamW(model.parameters(), lr=1e-4)
-    checkpoint_loaded = False
 
     if os.path.exists("data/picoGPT.pt"):
         print("Loading checkpoint...")
