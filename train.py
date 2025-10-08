@@ -13,7 +13,9 @@ from utils import build_dataset, get_batch
 import os
 import json, time
 
+
 record_file = "data/record.json"
+
 
 def load_record():
     if os.path.exists(record_file):
@@ -21,6 +23,7 @@ def load_record():
             return json.load(f)
     else:
         return {"steps_trained": 0, "total_time_sec": 0, "loss": 5}
+
 
 def save_record(step, start_time, loss, prev_record):
     elapsed = time.time() - start_time
@@ -34,73 +37,86 @@ def save_record(step, start_time, loss, prev_record):
         json.dump(record, f, indent=4)
     return record
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Load data
-train_data, val_data, vocab_size, encode, decode = build_dataset("data/dataset.txt")
+def main():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Create model
-model = PicoGPT(vocab_size=vocab_size, emb_dim=128, n_heads=4, n_layers=2, block_size=64).to(device)
+    # Load data
+    train_data, val_data, vocab_size, encode, decode = build_dataset("data/dataset.txt")
 
-# --- Load checkpoint if it exists ---
-optimizer = optim.AdamW(model.parameters(), lr=1e-4)
-checkpoint_loaded = False
+    # Create model
+    model = PicoGPT(
+        vocab_size=vocab_size,
+        emb_dim=128,
+        n_heads=4,
+        n_layers=2,
+        block_size=64
+    ).to(device)
 
-if os.path.exists("data/picoGPT.pt"):
-    print("Loading checkpoint...")
-    checkpoint = torch.load("data/picoGPT.pt", map_location=device)
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"])
-        checkpoint_loaded = True
-    else:
-        model.load_state_dict(checkpoint)
-        print("Loaded model weights only (no optimizer state).")
-    print("Checkpoint loaded!")
+    # --- Load checkpoint if it exists ---
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4)
+    checkpoint_loaded = False
 
-# LR scheduler (will activate later)
-scheduler = ReduceLROnPlateau(
-    optimizer,
-    mode='min',
-    factor=0.5,
-    patience=800,
-    threshold=1e-4,
-    cooldown=100,
-    min_lr=5e-6
-)
+    if os.path.exists("data/picoGPT.pt"):
+        print("Loading checkpoint...")
+        checkpoint = torch.load("data/picoGPT.pt", map_location=device)
+        if isinstance(checkpoint, dict) and "model_state" in checkpoint:
+            model.load_state_dict(checkpoint["model_state"])
+            checkpoint_loaded = True
+        else:
+            model.load_state_dict(checkpoint)
+            print("Loaded model weights only (no optimizer state).")
+        print("Checkpoint loaded!")
 
-step = 1
-start_time = time.time()
-record = load_record()
-max_loss = record['loss']
+    # LR scheduler (will activate later)
+    scheduler = ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        factor=0.5,
+        patience=800,
+        threshold=1e-4,
+        cooldown=100,
+        min_lr=5e-6
+    )
 
-# Delay scheduler for a few thousand steps
-SCHEDULER_START = 2000
+    step = 1
+    start_time = time.time()
+    record = load_record()
+    max_loss = record['loss']
 
-while True:
-    xb, yb = get_batch(train_data, model.block_size)
-    xb, yb = xb.to(device), yb.to(device)
+    # Delay scheduler for a few thousand steps
+    SCHEDULER_START = 2000
 
-    logits = model(xb)
-    loss = F.cross_entropy(logits.view(-1, vocab_size), yb.view(-1))
+    print("🚀 Training started... Press Ctrl+C to stop.\n")
+    while True:
+        xb, yb = get_batch(train_data, model.block_size)
+        xb, yb = xb.to(device), yb.to(device)
 
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+        logits = model(xb)
+        loss = F.cross_entropy(logits.view(-1, vocab_size), yb.view(-1))
 
-    # Activate scheduler only after warm-up phase
-    if step > SCHEDULER_START:
-        scheduler.step(loss)
-    
-    print(f"Step {record['steps_trained'] + step} | Loss {loss.item():.4f}")
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-    # Save on improvement
-    if loss.item() < max_loss:
-        max_loss = loss.item()
-        record = save_record(step, start_time, max_loss, record)
-        start_time = time.time()
-        torch.save({
-            "model_state": model.state_dict(),
-            "optim_state": optimizer.state_dict()
-        }, "data/picoGPT.pt")
+        # Activate scheduler only after warm-up phase
+        if step > SCHEDULER_START:
+            scheduler.step(loss)
+        
+        print(f"Step {record['steps_trained'] + step} | Loss {loss.item():.4f}")
 
-    step += 1
+        # Save on improvement
+        if loss.item() < max_loss:
+            max_loss = loss.item()
+            record = save_record(step, start_time, max_loss, record)
+            start_time = time.time()
+            torch.save({
+                "model_state": model.state_dict(),
+                "optim_state": optimizer.state_dict()
+            }, "data/picoGPT.pt")
+
+        step += 1
+
+
+if __name__ == "__main__":
+    main()
