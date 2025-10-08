@@ -1,3 +1,9 @@
+"""
+git add .
+git commit -m "Update the AI"
+git push
+"""
+
 import torch
 import torch.nn.functional as F
 from torch import optim
