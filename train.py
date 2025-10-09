@@ -12,6 +12,7 @@ from func import PicoGPT
 from utils import build_dataset, get_batch
 import os
 import json, time
+import push
 
 
 record_file = "data/record.json"
@@ -113,6 +114,7 @@ def main():
                 "model_state": model.state_dict(),
                 "optim_state": optimizer.state_dict()
             }, "data/picoGPT.pt")
+            push.push_all_to_github()
 
         step += 1
 
